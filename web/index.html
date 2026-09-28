@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Market Learning Cockpit</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand"><div class="mark">↗</div><div>MARKET<br><strong>COCKPIT</strong></div></div>
+      <div class="rail-caption">WORKSPACE / 01</div>
+      <nav aria-label="Main navigation">
+        <button class="nav active" data-tab="today"><span>◫</span> Today</button>
+        <button class="nav" data-tab="scanner"><span>⌕</span> Scanner</button>
+        <button class="nav" data-tab="explorer"><span>▤</span> Stock explorer</button>
+        <button class="nav" data-tab="learn"><span>◇</span> Learn</button>
+        <button class="nav" data-tab="journal"><span>▣</span> Observations</button>
+      </nav>
+      <div class="rail-bottom"><div class="rail-caption">DATA CONNECTION</div><div id="side-status" class="side-status">Loading…</div><div class="tiny">Local prototype · read-only</div></div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div class="breadcrumbs">MARKET INTELLIGENCE <span>/</span> <span id="crumb">TODAY</span></div><div class="topright"><span id="clock">—</span><span class="top-dot"></span><span id="mode-short">EXAMPLE</span></div></header>
+      <div id="banner" class="banner">Loading data status…</div>
+      <div id="view" class="view" aria-live="polite"></div>
+      <footer>MARKET LEARNING COCKPIT <span>•</span> OBSERVE · VERIFY · LEARN <span id="footer-cutoff"></span></footer>
+    </main>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
