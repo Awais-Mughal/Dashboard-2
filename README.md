@@ -1,6 +1,6 @@
 # Market Learning Cockpit
 
-A private, read-only US equity learning dashboard. Run locally with Python 3.12+ and no third-party packages. Its default dataset is **synthetic** and clearly labeled. This repository currently has no configured Git remote or deployment target.
+A private, read-only US equity learning dashboard. Run locally with Python 3.12+ and no third-party packages. Its default dataset is **synthetic** and clearly labeled. Deployment configuration is environment-specific.
 
 ## Run
 
