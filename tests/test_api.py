@@ -116,9 +116,14 @@ class ApiTests(unittest.TestCase):
         self.assertIs(self.state.series, original)
         self.assertIn('temporary', self.state.refresh_error)
 
-    def test_recorded_old_data_is_marked_stale(self):
+    def test_recorded_last_session_is_not_stale_while_market_closed(self):
         self.state.mode = 'recorded_etoro'
-        snapshots = self.state.snapshots()
+        snapshots = self.state.snapshots(now='2026-09-27T15:00:00Z')
+        self.assertNotEqual(snapshots['AAPL']['status'], 'stale')
+
+    def test_recorded_old_data_is_stale_during_regular_hours(self):
+        self.state.mode = 'recorded_etoro'
+        snapshots = self.state.snapshots(now='2026-09-24T15:00:00Z')
         self.assertEqual(snapshots['AAPL']['status'], 'stale')
 
     def test_outcome_window_crossing_close_is_truncated(self):

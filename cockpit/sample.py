@@ -3,17 +3,32 @@
 from datetime import datetime, timedelta, timezone
 
 
-SYMBOLS = ("SPY", "QQQ", "IWM", "XLK", "XLF", "XLE", "SMH", "NVDA", "AAPL", "AMD", "MSFT", "JPM", "TSLA")
-STOCKS = ("NVDA", "AAPL", "AMD", "MSFT", "JPM", "TSLA")
-SECTORS = {"XLK": "Technology", "XLF": "Financials", "XLE": "Energy", "SMH": "Semiconductors · theme"}
-BENCHMARKS = {"NVDA": "QQQ", "AAPL": "QQQ", "AMD": "QQQ", "MSFT": "QQQ", "JPM": "SPY", "TSLA": "QQQ"}
+MARKET = ("SPY", "QQQ", "IWM")
+STOCKS = ("AAPL", "MSFT", "NVDA", "AMD", "AVGO", "AMZN", "META", "GOOGL", "TSLA", "NFLX",
+          "PLTR", "JPM", "BAC", "WFC", "XOM", "CVX", "LLY", "UNH", "CAT", "BA")
+SECTORS = {"XLK": "Technology", "XLF": "Financials", "XLE": "Energy", "XLV": "Health care",
+           "XLI": "Industrials", "XLY": "Consumer discretionary", "XLP": "Consumer staples",
+           "XLU": "Utilities", "XLB": "Materials", "XLC": "Communication services",
+           "XLRE": "Real estate", "SMH": "Semiconductors · theme"}
+SYMBOLS = MARKET + tuple(SECTORS) + STOCKS
+BENCHMARKS = {
+    "AAPL": "XLK", "MSFT": "XLK", "PLTR": "XLK",
+    "NVDA": "SMH", "AMD": "SMH", "AVGO": "SMH",
+    "AMZN": "XLY", "TSLA": "XLY", "META": "XLC", "GOOGL": "XLC", "NFLX": "XLC",
+    "JPM": "XLF", "BAC": "XLF", "WFC": "XLF", "XOM": "XLE", "CVX": "XLE",
+    "LLY": "XLV", "UNH": "XLV", "CAT": "XLI", "BA": "XLI",
+}
 
 
 def sample_series():
-    starts = {"SPY": 560, "QQQ": 480, "IWM": 215, "XLK": 240, "XLF": 50, "XLE": 85, "SMH": 280,
-              "NVDA": 130, "AAPL": 225, "AMD": 160, "MSFT": 430, "JPM": 210, "TSLA": 250}
-    slopes = {"SPY": .07, "QQQ": .14, "IWM": -.06, "XLK": .10, "XLF": -.04, "XLE": -.08, "SMH": .24,
-              "NVDA": .22, "AAPL": .04, "AMD": .35, "MSFT": .10, "JPM": -.07, "TSLA": .17}
+    starts = {symbol: round(35 + ((sum(map(ord, symbol)) * 37) % 500), 2) for symbol in SYMBOLS}
+    starts.update({"SPY": 560, "QQQ": 480, "IWM": 215, "XLK": 240, "XLF": 50, "XLE": 85,
+                   "SMH": 280, "NVDA": 130, "AAPL": 225, "AMD": 160, "MSFT": 430,
+                   "JPM": 210, "TSLA": 250})
+    slopes = {symbol: (((sum(map(ord, symbol)) * 11) % 17) - 8) / 40 for symbol in SYMBOLS}
+    slopes.update({"SPY": .07, "QQQ": .14, "IWM": -.06, "XLK": .10, "XLF": -.04,
+                   "XLE": -.08, "SMH": .24, "NVDA": .22, "AAPL": .04, "AMD": .35,
+                   "MSFT": .10, "JPM": -.07, "TSLA": .17})
     start = datetime(2026, 9, 24, 13, 30, tzinfo=timezone.utc)
     prior = datetime(2026, 9, 23, 20, tzinfo=timezone.utc)
     result = {}

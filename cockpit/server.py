@@ -11,10 +11,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-from .metrics import compute_snapshot, breadth, parse_time
+from .metrics import compute_snapshot, breadth, parse_time, market_phase
 from .provider import AlpacaIEX, ProviderError
 from .etoro import EToro
-from .sample import sample_series, STOCKS, SECTORS, BENCHMARKS
+from .sample import sample_series, MARKET, STOCKS, SECTORS, BENCHMARKS
 from .storage import Store
 
 WEB = Path(__file__).resolve().parent.parent / "web"
@@ -25,7 +25,7 @@ class AppState:
         self.store = Store(db_path)
         self.provider = provider or (AlpacaIEX(key_id, secret) if key_id and secret else None)
         self.etoro = EToro(etoro_key, etoro_user_key) if etoro_key and etoro_user_key else None
-        self.selected = 'sample'
+        self.selected = 'etoro' if self.etoro else 'alpaca' if self.provider else 'sample'
         self.series = sample_series()
         self.mode = "synthetic_example"
         self.symbols = list(self.series)
@@ -60,7 +60,7 @@ class AppState:
                 self.refresh_error = None
         return {'selected': self.selected, 'mode': self.mode}
 
-    def snapshots(self):
+    def snapshots(self, now=None):
         with self.lock:
             series, mode, symbols = self.series, self.mode, self.symbols
             usable_ends = [parse_time(data["minute"][-1]["t"]) + timedelta(minutes=1)
@@ -69,8 +69,10 @@ class AppState:
             feed = "synthetic_example" if mode == "synthetic_example" else "etoro:unverified_volume" if mode == "recorded_etoro" else "alpaca:iex"
             result = {s: compute_snapshot(s, series[s], series.get(BENCHMARKS[s]) if s in BENCHMARKS else None, feed=feed, as_of=cutoff)
                       for s in symbols}
+            current = parse_time(now or datetime.now(timezone.utc))
+            phase = market_phase(current)['phase']
             threshold = timedelta(minutes=5 if mode == 'recorded_etoro' else 30)
-            if mode != 'synthetic_example' and datetime.now(timezone.utc) - cutoff > threshold:
+            if mode != 'synthetic_example' and phase == 'regular' and current - cutoff > threshold:
                 for snapshot in result.values():
                     snapshot['status'] = 'stale'
                     snapshot.setdefault('issues', []).append('old_cutoff')
@@ -85,14 +87,28 @@ class AppState:
         start = end - timedelta(days=7)
         daily_start = end - timedelta(days=35)
         fresh = {}
-        for symbol in ("SPY", "QQQ", "AAPL", "NVDA", "XLK"):
-            minute = chosen.fetch_bars(symbol, start.isoformat(), end.isoformat())
-            daily = chosen.fetch_bars(symbol, daily_start.isoformat(), end.isoformat(), "1Day")
-            if minute:
-                fresh[symbol] = {"minute": minute, "daily": daily}
+        failures = {}
+        target_symbols = MARKET + tuple(SECTORS) + STOCKS
+        expected_mode = 'recorded_etoro' if selected == 'etoro' else 'recorded_iex_delayed'
+        with self.lock:
+            cached_daily = ({symbol: data.get('daily', []) for symbol, data in self.series.items()}
+                            if self.mode == expected_mode else {})
+        for symbol in target_symbols:
+            try:
+                minute = chosen.fetch_bars(symbol, start.isoformat(), end.isoformat())
+                daily = cached_daily.get(symbol) or chosen.fetch_bars(
+                    symbol, daily_start.isoformat(), end.isoformat(), "1Day")
+                if minute:
+                    fresh[symbol] = {"minute": minute, "daily": daily}
+                else:
+                    failures[symbol] = 'no minute candles'
+            except ProviderError as exc:
+                failures[symbol] = str(exc)
         if not all(s in fresh for s in ("SPY", "QQQ", "AAPL", "NVDA")):
-            raise ProviderError("Probe returned incomplete benchmark/stock bars; remaining in example mode")
-        common_cutoff = min(parse_time(data["minute"][-1]["t"]) + timedelta(minutes=1) for data in fresh.values())
+            missing_required = [s for s in ("SPY", "QQQ", "AAPL", "NVDA") if s not in fresh]
+            detail = '; '.join(f'{s}: {failures.get(s, "unavailable")}' for s in missing_required)
+            raise ProviderError(f"Probe returned incomplete required data ({detail}); previous dataset retained")
+        common_cutoff = min(parse_time(fresh[s]["minute"][-1]["t"]) + timedelta(minutes=1) for s in ("SPY", "QQQ"))
         required = ("SPY", "QQQ", "AAPL", "NVDA")
         feed = 'etoro:unverified_volume' if selected == 'etoro' else 'alpaca:iex'
         checks = [compute_snapshot(symbol, fresh[symbol], feed=feed, as_of=common_cutoff) for symbol in required]
@@ -106,10 +122,12 @@ class AppState:
                 raise ProviderError('Data provider changed during refresh; discard old result')
             self.series = fresh
             self.symbols = list(fresh)
-            self.stocks = [s for s in ("AAPL", "NVDA") if s in fresh]
+            self.stocks = [s for s in STOCKS if s in fresh]
             self.mode = "recorded_etoro" if selected == 'etoro' else "recorded_iex_delayed"
             self.refresh_error = None
-        return {"mode": self.mode, "symbols": self.symbols, "cutoff": common_cutoff.isoformat().replace("+00:00", "Z"), "note": "eToro price candles · volume unverified · no streaming" if selected == 'etoro' else "IEX venue only · historical request ends at least 16 minutes before request time · no streaming"}
+        return {"mode": self.mode, "symbols": self.symbols, "stocks": len(self.stocks),
+                "missing": failures, "cutoff": common_cutoff.isoformat().replace("+00:00", "Z"),
+                "note": "eToro price candles · volume unverified · no streaming" if selected == 'etoro' else "IEX venue only · historical request ends at least 16 minutes before request time · no streaming"}
 
     def outcomes(self, item):
         snapshot = item['snapshot']
@@ -176,7 +194,7 @@ def make_handler(state):
             if path in ("/api/market", "/api/scanner") or re.fullmatch(r"/api/stocks/[A-Z0-9.\-]+", path):
                 snapshots = state.snapshots()
                 cutoff = min((s["cutoff"] for s in snapshots.values()), default=None)
-                common = {"mode": state.mode, "cutoff": cutoff}
+                common = {"mode": state.mode, "cutoff": cutoff, "session": market_phase()}
                 if path == "/api/market":
                     return self.send_json({**common, "benchmarks": {k: snapshots[k] for k in ("SPY", "QQQ", "IWM") if k in snapshots},
                                            "sectors": [{"symbol": k, "name": v, "snapshot": snapshots[k]} for k, v in SECTORS.items() if k in snapshots],
@@ -189,7 +207,7 @@ def make_handler(state):
                 with state.lock:
                     bars = state.series[symbol]["minute"]
                     chart = [b for b in bars if parse_time(b["t"]) + timedelta(minutes=1) <= parse_time(snapshots[symbol]["cutoff"])]
-                return self.send_json({**common, "snapshot": snapshots[symbol], "bars": chart[-90:], "benchmark": BENCHMARKS.get(symbol)})
+                return self.send_json({**common, "snapshot": snapshots[symbol], "bars": chart[-390:], "benchmark": BENCHMARKS.get(symbol)})
             return self.send_json({"error": "Not found"}, 404)
 
         def do_POST(self):
@@ -252,8 +270,8 @@ def main():
                      etoro_key=os.getenv('ETORO_API_KEY'), etoro_user_key=os.getenv('ETORO_USER_KEY'))
     def refresh_loop():
         while True:
-            time.sleep(120)
             state.refresh_once()
+            time.sleep(300)
     threading.Thread(target=refresh_loop, daemon=True, name='market-refresh').start()
     server = ThreadingHTTPServer((host, port), make_handler(state))
     print(f"Cockpit at http://{host}:{port} — {state.mode}", flush=True)

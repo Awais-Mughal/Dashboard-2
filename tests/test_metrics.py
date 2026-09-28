@@ -1,6 +1,6 @@
 import unittest
 
-from cockpit.metrics import breadth, compute_snapshot
+from cockpit.metrics import breadth, compute_snapshot, market_phase
 
 
 def series(previous_close=100, minute=None):
@@ -74,6 +74,40 @@ class MetricTests(unittest.TestCase):
     def test_price_breadth_includes_rows_without_volume(self):
         result = breadth([{'change_prev_pct': 2, 'status': 'partial', 'issues': ['volume']}])
         self.assertEqual(result['eligible'], 1)
+
+    def test_previous_minute_session_overrides_misaligned_daily_candle(self):
+        data = {
+            'minute': [
+                {'t': '2026-09-23T19:58:00Z', 'o': 99, 'h': 100, 'l': 98, 'c': 99, 'v': None, 'vw': None},
+                {'t': '2026-09-23T19:59:00Z', 'o': 99, 'h': 101, 'l': 99, 'c': 100, 'v': None, 'vw': None},
+                {'t': '2026-09-24T13:30:00Z', 'o': 102, 'h': 103, 'l': 101, 'c': 102, 'v': None, 'vw': None},
+                {'t': '2026-09-24T13:31:00Z', 'o': 102, 'h': 106, 'l': 102, 'c': 105, 'v': None, 'vw': None},
+            ],
+            # eToro can label the current daily candle with the prior UTC date.
+            'daily': [{'t': '2026-09-23T00:00:00Z', 'o': 102, 'h': 106, 'l': 101, 'c': 105, 'v': None}],
+        }
+        result = compute_snapshot('AAA', data, as_of='2026-09-24T13:32:00Z')
+        self.assertEqual(result['previous_close'], 100)
+        self.assertEqual(result['levels']['previous_high'], 101)
+        self.assertAlmostEqual(result['change_prev_pct'], 5)
+
+    def test_price_context_reports_range_position_and_multi_day_returns(self):
+        data = series()
+        data['daily'] = [
+            {'t': f'2026-09-{day:02d}T04:00:00Z', 'o': 80 + day, 'h': 83 + day, 'l': 79 + day, 'c': 81 + day, 'v': None}
+            for day in range(1, 21)
+        ]
+        result = compute_snapshot('AAA', data, as_of='2026-09-24T13:32:00Z')
+        self.assertAlmostEqual(result['session_range_position_pct'], 80)
+        self.assertIsNotNone(result['return_5d_pct'])
+        self.assertIsNotNone(result['return_20d_pct'])
+        self.assertIsNotNone(result['atr14'])
+        self.assertIsNotNone(result['atr_pct'])
+
+    def test_market_phase_distinguishes_closed_and_regular_hours(self):
+        self.assertEqual(market_phase('2026-09-28T09:00:00Z')['phase'], 'premarket')
+        self.assertEqual(market_phase('2026-09-28T15:00:00Z')['phase'], 'regular')
+        self.assertEqual(market_phase('2026-09-27T15:00:00Z')['phase'], 'market_closed')
 
 
 if __name__ == "__main__":
